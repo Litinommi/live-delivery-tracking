@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { TrackingSession } from "../types";
+import { OrderSummary, TrackingSession } from "../types";
 import { formatRelativeTime } from "../services/geo";
+import { OrderSwitcher } from "./OrderSwitcher";
 
 const DELIVERY_STATUS_COPY: Record<TrackingSession["deliveryStatus"], string> = {
   OFFLINE: "Waiting for delivery partner to connect",
@@ -21,10 +22,21 @@ function Field({ label, value }: { label: string; value: string }) {
 
 interface OrderCardProps {
   session: TrackingSession;
+  history: OrderSummary[];
+  historyLoading: boolean;
+  onSelectOrder: (trackingCode: string) => void;
   onNewOrder: () => void;
+  onOpenSwitcher: () => void;
 }
 
-export function OrderCard({ session, onNewOrder }: OrderCardProps) {
+export function OrderCard({
+  session,
+  history,
+  historyLoading,
+  onSelectOrder,
+  onNewOrder,
+  onOpenSwitcher,
+}: OrderCardProps) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -37,20 +49,15 @@ export function OrderCard({ session, onNewOrder }: OrderCardProps) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-            ORDER
-          </p>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">{session.orderId}</h2>
-        </div>
-        <button
-          onClick={onNewOrder}
-          className="text-xs font-medium text-accent-600 dark:text-accent-400 hover:underline shrink-0 mt-0.5"
-        >
-          New order
-        </button>
-      </div>
+      <OrderSwitcher
+        currentOrderId={session.orderId}
+        orders={history}
+        loading={historyLoading}
+        activeTrackingCode={session.trackingCode}
+        onSelect={onSelectOrder}
+        onNewOrder={onNewOrder}
+        onOpen={onOpenSwitcher}
+      />
 
       <div>
         <div className="flex items-center gap-2 mb-1.5">
