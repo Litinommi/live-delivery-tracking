@@ -19,4 +19,14 @@ export interface TrackingSession {
   createdAt: number;
 }
 
+/** Lightweight order info for the history list — no location history payload. */
+export interface OrderSummary {
+  orderId: string;
+  trackingCode: string;
+  status: OrderStatus;
+  deliveryStatus: DeliveryStatus;
+  createdAt: number;
+  currentLocation?: LocationPoint;
+}
+
 export type SocketConnectionState = "connected" | "reconnecting" | "disconnected";

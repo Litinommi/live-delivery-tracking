@@ -1,4 +1,4 @@
-import { TrackingSession } from "../types";
+import { OrderSummary, TrackingSession } from "../types";
 
 export const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? "http://localhost:4000";
 
@@ -19,6 +19,13 @@ export const api = {
   getOrderByTrackingCode(trackingCode: string): Promise<TrackingSession> {
     return fetch(`${SERVER_URL}/api/orders/${encodeURIComponent(trackingCode)}`).then((r) =>
       handle<TrackingSession>(r)
+    );
+  },
+  getOrderHistory(trackingCodes: string[]): Promise<OrderSummary[]> {
+    if (trackingCodes.length === 0) return Promise.resolve([]);
+    const codes = encodeURIComponent(trackingCodes.join(","));
+    return fetch(`${SERVER_URL}/api/orders/history?codes=${codes}`).then((r) =>
+      handle<OrderSummary[]>(r)
     );
   },
 };

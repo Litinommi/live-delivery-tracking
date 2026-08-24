@@ -20,11 +20,14 @@ export interface TrackingSession {
   createdAt: number;
 }
 
-/** Internal server-side record — adds socket bookkeeping not sent to clients. */
-export interface SessionRecord extends TrackingSession {
-  deliverySocketId?: string;
-  customerSocketIds: Set<string>;
-  lastLocationAcceptedAt?: number;
+/** Lightweight order info for history lists — no location history payload. */
+export interface OrderSummary {
+  orderId: string;
+  trackingCode: string;
+  status: OrderStatus;
+  deliveryStatus: DeliveryStatus;
+  createdAt: number;
+  currentLocation?: LocationPoint;
 }
 
 export interface DeliveryLocationPayload {

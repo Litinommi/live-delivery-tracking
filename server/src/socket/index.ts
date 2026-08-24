@@ -1,13 +1,19 @@
 import { Server, Socket } from "socket.io";
 import {
-  appendLocation,
+  bindDeliverySocket,
   canAcceptLocation,
-  findSessionByDeliverySocket,
-  getSession,
+  findTrackingCodeByDeliverySocket,
+  getDeliveryBinding,
+  markLocationAccepted,
+  unbindDeliverySocket,
+} from "../services/liveState";
+import {
+  appendLocationPoint,
+  findOrderWithHistory,
   roomForOrder,
-  toPublicSession,
+  updateDeliveryStatus,
 } from "../services/sessionStore";
-import { DeliveryLocationPayload, JoinAck, JoinPayload, SessionRecord } from "../types";
+import { DeliveryLocationPayload, DeliveryStatus, JoinAck, JoinPayload, LocationPoint } from "../types";
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -19,87 +25,116 @@ function isValidCoordinate(lat: unknown, lon: unknown): boolean {
   );
 }
 
-function broadcastDeliveryStatus(io: Server, session: SessionRecord): void {
-  io.to(roomForOrder(session.orderId)).emit("delivery:status", {
-    deliveryStatus: session.deliveryStatus,
-  });
+function broadcastDeliveryStatus(io: Server, displayOrderId: string, deliveryStatus: DeliveryStatus): void {
+  io.to(roomForOrder(displayOrderId)).emit("delivery:status", { deliveryStatus });
 }
 
 export function registerSocketHandlers(io: Server): void {
   io.on("connection", (socket: Socket) => {
-    socket.on("customer:join", (payload: JoinPayload, ack?: (res: JoinAck) => void) => {
-      const session = getSession(payload?.trackingCode ?? "");
-      if (!session) {
-        ack?.({ ok: false, error: "Invalid tracking code." });
-        return;
+    socket.on("customer:join", async (payload: JoinPayload, ack?: (res: JoinAck) => void) => {
+      try {
+        const found = await findOrderWithHistory(payload?.trackingCode ?? "");
+        if (!found) {
+          ack?.({ ok: false, error: "Invalid tracking code." });
+          return;
+        }
+        // A customer can switch which order they're viewing (order history) without
+        // reconnecting — make sure they only ever receive events for one order at a time.
+        const room = roomForOrder(found.session.orderId);
+        const previousRoom = socket.data.customerRoom as string | undefined;
+        if (previousRoom && previousRoom !== room) socket.leave(previousRoom);
+        socket.join(room);
+        socket.data.customerRoom = room;
+        ack?.({ ok: true, session: found.session });
+      } catch (err) {
+        console.error("customer:join failed:", err);
+        ack?.({ ok: false, error: "Something went wrong. Please try again." });
       }
-      socket.join(roomForOrder(session.orderId));
-      socket.data.role = "customer";
-      socket.data.trackingCode = session.trackingCode;
-      session.customerSocketIds.add(socket.id);
-      ack?.({ ok: true, session: toPublicSession(session) });
     });
 
-    socket.on("delivery:join", (payload: JoinPayload, ack?: (res: JoinAck) => void) => {
-      const session = getSession(payload?.trackingCode ?? "");
-      if (!session) {
-        ack?.({ ok: false, error: "Invalid tracking code." });
-        return;
+    socket.on("delivery:join", async (payload: JoinPayload, ack?: (res: JoinAck) => void) => {
+      try {
+        const found = await findOrderWithHistory(payload?.trackingCode ?? "");
+        if (!found) {
+          ack?.({ ok: false, error: "Invalid tracking code." });
+          return;
+        }
+        const room = roomForOrder(found.session.orderId);
+        const previousRoom = socket.data.deliveryRoom as string | undefined;
+        if (previousRoom && previousRoom !== room) socket.leave(previousRoom);
+        socket.join(room);
+        socket.data.deliveryRoom = room;
+        bindDeliverySocket(found.session.trackingCode, {
+          socketId: socket.id,
+          orderRecordId: found.order.id,
+          displayOrderId: found.session.orderId,
+        });
+        await updateDeliveryStatus(found.order.id, "CONNECTED");
+        ack?.({ ok: true, session: { ...found.session, deliveryStatus: "CONNECTED" } });
+        broadcastDeliveryStatus(io, found.session.orderId, "CONNECTED");
+      } catch (err) {
+        console.error("delivery:join failed:", err);
+        ack?.({ ok: false, error: "Something went wrong. Please try again." });
       }
-      socket.join(roomForOrder(session.orderId));
-      socket.data.role = "delivery";
-      socket.data.trackingCode = session.trackingCode;
-      session.deliverySocketId = socket.id;
-      session.deliveryStatus = "CONNECTED";
-      ack?.({ ok: true, session: toPublicSession(session) });
-      broadcastDeliveryStatus(io, session);
     });
 
-    socket.on("delivery:location", (payload: DeliveryLocationPayload) => {
-      const session = getSession(payload?.trackingCode ?? "");
-      if (!session) return;
+    socket.on("delivery:location", async (payload: DeliveryLocationPayload) => {
+      try {
+        const trackingCode = (payload?.trackingCode ?? "").toUpperCase();
+        const binding = getDeliveryBinding(trackingCode);
+        // Only the socket that joined as this order's delivery partner may push locations.
+        if (!binding || binding.socketId !== socket.id) return;
+        if (!isValidCoordinate(payload.latitude, payload.longitude)) return;
 
-      // Only the socket that joined as the delivery partner for this order may push locations.
-      if (session.deliverySocketId !== socket.id) return;
-      if (!isValidCoordinate(payload.latitude, payload.longitude)) return;
+        const now = Date.now();
+        if (!canAcceptLocation(trackingCode, now)) return;
+        markLocationAccepted(trackingCode, now);
 
-      const now = Date.now();
-      if (!canAcceptLocation(session, now)) return;
+        const point: LocationPoint = {
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+          accuracy: isFiniteNumber(payload.accuracy) ? payload.accuracy : undefined,
+          timestamp: isFiniteNumber(payload.timestamp) ? payload.timestamp : now,
+        };
 
-      const point = {
-        latitude: payload.latitude,
-        longitude: payload.longitude,
-        accuracy: isFiniteNumber(payload.accuracy) ? payload.accuracy : undefined,
-        timestamp: isFiniteNumber(payload.timestamp) ? payload.timestamp : now,
-      };
-      appendLocation(session, point);
+        await appendLocationPoint(binding.orderRecordId, point);
+        io.to(roomForOrder(binding.displayOrderId)).emit("location:update", point);
 
-      if (session.deliveryStatus !== "TRACKING") {
-        session.deliveryStatus = "TRACKING";
-        broadcastDeliveryStatus(io, session);
+        if (!binding.trackingStarted) {
+          binding.trackingStarted = true;
+          await updateDeliveryStatus(binding.orderRecordId, "TRACKING");
+          broadcastDeliveryStatus(io, binding.displayOrderId, "TRACKING");
+        }
+      } catch (err) {
+        console.error("delivery:location failed:", err);
       }
-
-      io.to(roomForOrder(session.orderId)).emit("location:update", point);
     });
 
-    socket.on("delivery:stop", (payload: JoinPayload) => {
-      const session = getSession(payload?.trackingCode ?? "");
-      if (!session || session.deliverySocketId !== socket.id) return;
-      session.deliveryStatus = "CONNECTED";
-      broadcastDeliveryStatus(io, session);
+    socket.on("delivery:stop", async (payload: JoinPayload) => {
+      try {
+        const trackingCode = (payload?.trackingCode ?? "").toUpperCase();
+        const binding = getDeliveryBinding(trackingCode);
+        if (!binding || binding.socketId !== socket.id) return;
+        binding.trackingStarted = false;
+        await updateDeliveryStatus(binding.orderRecordId, "CONNECTED");
+        broadcastDeliveryStatus(io, binding.displayOrderId, "CONNECTED");
+      } catch (err) {
+        console.error("delivery:stop failed:", err);
+      }
     });
 
-    socket.on("disconnect", () => {
-      const session = findSessionByDeliverySocket(socket.id);
-      if (session) {
-        session.deliverySocketId = undefined;
-        session.deliveryStatus = "OFFLINE";
-        broadcastDeliveryStatus(io, session);
-      }
-      const trackingCode = socket.data.trackingCode as string | undefined;
-      if (trackingCode) {
-        const s = getSession(trackingCode);
-        s?.customerSocketIds.delete(socket.id);
+    socket.on("disconnect", async () => {
+      try {
+        const trackingCode = findTrackingCodeByDeliverySocket(socket.id);
+        if (!trackingCode) return;
+        const binding = getDeliveryBinding(trackingCode);
+        unbindDeliverySocket(trackingCode);
+        if (binding) {
+          await updateDeliveryStatus(binding.orderRecordId, "OFFLINE");
+          broadcastDeliveryStatus(io, binding.displayOrderId, "OFFLINE");
+        }
+      } catch (err) {
+        console.error("disconnect handling failed:", err);
       }
     });
   });

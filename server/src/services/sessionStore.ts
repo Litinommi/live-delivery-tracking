@@ -1,46 +1,116 @@
-import { LocationPoint, SessionRecord, TrackingSession } from "../types";
+import { Order as OrderRow, LocationPoint as LocationPointRow } from "@prisma/client";
+import { db } from "../db";
+import { DeliveryStatus, LocationPoint, OrderStatus, OrderSummary, TrackingSession } from "../types";
 
 const TRACKING_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I ambiguity
 const MAX_HISTORY_POINTS = 500;
-const MIN_MS_BETWEEN_ACCEPTED_POINTS = 500; // server-side floor, defends against a runaway client
 
-/** Order numbers are sequential and start at 1001, purely for a friendly display id. */
-let orderSequence = 1000;
-
-const sessionsByTrackingCode = new Map<string, SessionRecord>();
-
-function generateTrackingCode(): string {
-  let code: string;
-  do {
-    code = Array.from(
-      { length: 6 },
-      () => TRACKING_CODE_CHARS[Math.floor(Math.random() * TRACKING_CODE_CHARS.length)]
-    ).join("");
-  } while (sessionsByTrackingCode.has(code));
-  return code;
+function randomTrackingCode(): string {
+  return Array.from(
+    { length: 6 },
+    () => TRACKING_CODE_CHARS[Math.floor(Math.random() * TRACKING_CODE_CHARS.length)]
+  ).join("");
 }
 
-export function createSession(): SessionRecord {
-  orderSequence += 1;
-  const record: SessionRecord = {
-    orderId: `ORD-${orderSequence}`,
-    trackingCode: generateTrackingCode(),
-    status: "ON_THE_WAY",
-    deliveryStatus: "OFFLINE",
-    locationHistory: [],
-    createdAt: Date.now(),
-    customerSocketIds: new Set(),
-  };
-  sessionsByTrackingCode.set(record.trackingCode, record);
-  return record;
+async function generateUniqueTrackingCode(): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = randomTrackingCode();
+    const existing = await db.order.findUnique({ where: { trackingCode: code } });
+    if (!existing) return code;
+  }
+  throw new Error("Failed to generate a unique tracking code");
 }
 
-export function getSession(trackingCode: string): SessionRecord | undefined {
-  return sessionsByTrackingCode.get(trackingCode.toUpperCase());
+function formatOrderId(seq: number): string {
+  return `ORD-${1000 + seq}`;
 }
 
 export function roomForOrder(orderId: string): string {
   return `order:${orderId}`;
+}
+
+function toLocationPoint(row: LocationPointRow): LocationPoint {
+  return {
+    latitude: row.latitude,
+    longitude: row.longitude,
+    accuracy: row.accuracy ?? undefined,
+    timestamp: row.timestamp.getTime(),
+  };
+}
+
+function toPublicSession(order: OrderRow, locations: LocationPointRow[]): TrackingSession {
+  const points = locations.map(toLocationPoint);
+  return {
+    orderId: formatOrderId(order.seq),
+    trackingCode: order.trackingCode,
+    status: order.status as OrderStatus,
+    deliveryStatus: order.deliveryStatus as DeliveryStatus,
+    currentLocation: points[points.length - 1],
+    locationHistory: points,
+    createdAt: order.createdAt.getTime(),
+  };
+}
+
+export async function createSession(): Promise<TrackingSession> {
+  const trackingCode = await generateUniqueTrackingCode();
+  const order = await db.order.create({ data: { trackingCode } });
+  return toPublicSession(order, []);
+}
+
+/** Fetches an order with its recent location history, plus the raw DB row for internal use (e.g. binding a delivery socket to its internal id). */
+export async function findOrderWithHistory(
+  trackingCode: string
+): Promise<{ order: OrderRow; session: TrackingSession } | undefined> {
+  const order = await db.order.findUnique({ where: { trackingCode: trackingCode.toUpperCase() } });
+  if (!order) return undefined;
+
+  const locations = await db.locationPoint.findMany({
+    where: { orderId: order.id },
+    orderBy: { timestamp: "desc" },
+    take: MAX_HISTORY_POINTS,
+  });
+  locations.reverse();
+
+  return { order, session: toPublicSession(order, locations) };
+}
+
+export async function appendLocationPoint(orderRecordId: string, point: LocationPoint): Promise<void> {
+  await db.locationPoint.create({
+    data: {
+      orderId: orderRecordId,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      accuracy: point.accuracy,
+      timestamp: new Date(point.timestamp),
+    },
+  });
+}
+
+export async function updateDeliveryStatus(
+  orderRecordId: string,
+  deliveryStatus: DeliveryStatus
+): Promise<void> {
+  await db.order.update({ where: { id: orderRecordId }, data: { deliveryStatus } });
+}
+
+/** Lightweight order summaries for a browser's order-history list — no location history payload. */
+export async function getOrderSummaries(trackingCodes: string[]): Promise<OrderSummary[]> {
+  if (trackingCodes.length === 0) return [];
+
+  const orders = await db.order.findMany({
+    where: { trackingCode: { in: trackingCodes.map((c) => c.toUpperCase()) } },
+    include: { locations: { orderBy: { timestamp: "desc" }, take: 1 } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return orders.map((order) => ({
+    orderId: formatOrderId(order.seq),
+    trackingCode: order.trackingCode,
+    status: order.status as OrderStatus,
+    deliveryStatus: order.deliveryStatus as DeliveryStatus,
+    createdAt: order.createdAt.getTime(),
+    currentLocation: order.locations[0] ? toLocationPoint(order.locations[0]) : undefined,
+  }));
 }
 
 /** Distance between two GPS points in meters (Haversine formula). */
@@ -56,33 +126,4 @@ export function distanceMeters(a: LocationPoint, b: LocationPoint): number {
   const sinDLon = Math.sin(dLon / 2);
   const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-/** Rejects points arriving unreasonably fast, regardless of client-side throttling. */
-export function canAcceptLocation(session: SessionRecord, now: number): boolean {
-  if (session.lastLocationAcceptedAt === undefined) return true;
-  return now - session.lastLocationAcceptedAt >= MIN_MS_BETWEEN_ACCEPTED_POINTS;
-}
-
-export function appendLocation(session: SessionRecord, point: LocationPoint): void {
-  session.currentLocation = point;
-  session.lastLocationAcceptedAt = Date.now();
-  session.locationHistory.push(point);
-  if (session.locationHistory.length > MAX_HISTORY_POINTS) {
-    session.locationHistory.splice(0, session.locationHistory.length - MAX_HISTORY_POINTS);
-  }
-}
-
-export function toPublicSession(session: SessionRecord): TrackingSession {
-  const { orderId, trackingCode, status, deliveryStatus, currentLocation, locationHistory, createdAt } =
-    session;
-  return { orderId, trackingCode, status, deliveryStatus, currentLocation, locationHistory, createdAt };
-}
-
-/** Find the session currently owned by a given delivery socket, e.g. on disconnect. */
-export function findSessionByDeliverySocket(socketId: string): SessionRecord | undefined {
-  for (const session of sessionsByTrackingCode.values()) {
-    if (session.deliverySocketId === socketId) return session;
-  }
-  return undefined;
 }

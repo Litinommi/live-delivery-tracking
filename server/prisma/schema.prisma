@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id             String          @id @default(cuid())
+  seq            Int             @default(autoincrement())
+  trackingCode   String          @unique
+  status         String          @default("ON_THE_WAY")
+  deliveryStatus String          @default("OFFLINE")
+  createdAt      DateTime        @default(now())
+  locations      LocationPoint[]
+}
+
+model LocationPoint {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  latitude  Float
+  longitude Float
+  accuracy  Float?
+  timestamp DateTime
+  createdAt DateTime @default(now())
+
+  @@index([orderId, timestamp])
+}

@@ -3,20 +3,27 @@ import { Header } from "../components/Header";
 import { EmptyState } from "../components/EmptyState";
 import { OrderCard } from "../components/OrderCard";
 import { MapView } from "../components/MapView";
+import { OrderHistoryPanel } from "../components/OrderHistoryPanel";
 import { BadgeVariant } from "../components/ConnectionBadge";
 import { useSocketConnection } from "../hooks/useSocketConnection";
 import { useTheme } from "../hooks/useTheme";
 import { getSocket } from "../services/socket";
 import { api } from "../services/api";
-import { DeliveryStatus, LocationPoint, TrackingSession } from "../types";
+import {
+  addToHistory,
+  clearLastViewedCode,
+  getHistoryCodes,
+  getLastViewedCode,
+  migrateLegacyStorage,
+  setLastViewedCode,
+} from "../services/orderHistory";
+import { DeliveryStatus, LocationPoint, OrderSummary, TrackingSession } from "../types";
 
 interface JoinAck {
   ok: boolean;
   session?: TrackingSession;
   error?: string;
 }
-
-const TRACKING_CODE_STORAGE_KEY = "ldt:customerTrackingCode";
 
 function deriveBadge(
   connectionState: ReturnType<typeof useSocketConnection>,
@@ -42,6 +49,9 @@ export function CustomerPage() {
   const [session, setSession] = useState<TrackingSession | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOrders, setHistoryOrders] = useState<OrderSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const joinAsCustomer = (trackingCode: string) => {
     const socket = getSocket();
@@ -50,10 +60,19 @@ export function CustomerPage() {
       if (ack.ok && ack.session) {
         setSession(ack.session);
       } else {
-        localStorage.removeItem(TRACKING_CODE_STORAGE_KEY);
+        clearLastViewedCode();
         setSession(null);
       }
     });
+  };
+
+  const refreshHistory = () => {
+    setHistoryLoading(true);
+    api
+      .getOrderHistory(getHistoryCodes())
+      .then(setHistoryOrders)
+      .catch(() => setHistoryOrders([]))
+      .finally(() => setHistoryLoading(false));
   };
 
   const handleCreateOrder = async () => {
@@ -61,7 +80,8 @@ export function CustomerPage() {
     setCreateError(null);
     try {
       const created = await api.createOrder();
-      localStorage.setItem(TRACKING_CODE_STORAGE_KEY, created.trackingCode);
+      addToHistory(created.trackingCode);
+      setLastViewedCode(created.trackingCode);
       setSession(created);
       joinAsCustomer(created.trackingCode);
     } catch (err) {
@@ -72,13 +92,31 @@ export function CustomerPage() {
   };
 
   const handleNewOrder = () => {
-    localStorage.removeItem(TRACKING_CODE_STORAGE_KEY);
+    clearLastViewedCode();
     setSession(null);
   };
 
-  // On load, re-attach to whatever order this browser last created, if it still exists on the server.
+  const handleViewOrder = async (trackingCode: string) => {
+    setHistoryOpen(false);
+    setLastViewedCode(trackingCode);
+    try {
+      const existing = await api.getOrderByTrackingCode(trackingCode);
+      setSession(existing);
+      joinAsCustomer(trackingCode);
+    } catch {
+      clearLastViewedCode();
+    }
+  };
+
+  const handleOpenHistory = () => {
+    setHistoryOpen(true);
+    refreshHistory();
+  };
+
+  // On load, re-attach to whatever order this browser last viewed, if it still exists on the server.
   useEffect(() => {
-    const storedCode = localStorage.getItem(TRACKING_CODE_STORAGE_KEY);
+    migrateLegacyStorage();
+    const storedCode = getLastViewedCode();
     if (!storedCode) return;
 
     let cancelled = false;
@@ -90,7 +128,7 @@ export function CustomerPage() {
         joinAsCustomer(storedCode);
       })
       .catch(() => {
-        localStorage.removeItem(TRACKING_CODE_STORAGE_KEY);
+        clearLastViewedCode();
       });
 
     return () => {
@@ -121,6 +159,7 @@ export function CustomerPage() {
   }, [session?.trackingCode]);
 
   const badge = deriveBadge(connectionState, session);
+  const historyCodeCount = getHistoryCodes().length;
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -130,6 +169,8 @@ export function CustomerPage() {
         theme={theme}
         onToggleTheme={toggle}
         subtitle="Live Delivery"
+        onOpenHistory={handleOpenHistory}
+        historyCount={historyCodeCount}
       />
 
       {!session ? (
@@ -146,6 +187,15 @@ export function CustomerPage() {
           </div>
         </div>
       )}
+
+      <OrderHistoryPanel
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        orders={historyOrders}
+        loading={historyLoading}
+        activeTrackingCode={session?.trackingCode}
+        onSelect={handleViewOrder}
+      />
     </div>
   );
 }
