@@ -34,6 +34,22 @@ export function TrackingScreen({ session, connectionState }: TrackingScreenProps
     return () => clearInterval(id);
   }, []);
 
+  // Re-register as this order's delivery partner whenever the socket (re)connects —
+  // a reconnect after a network blip, or after the backend spins back up from Render's
+  // free-tier idle sleep, gets a new socket id that the server has no record of until
+  // it re-joins. Without this, the app can look "connected" while every GPS point is
+  // silently dropped server-side.
+  useEffect(() => {
+    const socket = getSocket();
+    const onConnect = () => {
+      socket.emit("delivery:join", { trackingCode: session.trackingCode });
+    };
+    socket.on("connect", onConnect);
+    return () => {
+      socket.off("connect", onConnect);
+    };
+  }, [session.trackingCode]);
+
   useLocationBroadcaster(session.trackingCode, geo.position, trackingActive);
 
   const handleToggle = () => {

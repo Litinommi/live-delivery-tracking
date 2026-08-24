@@ -54,6 +54,7 @@ export function CustomerPage() {
   // Bumped on every fetch AND every direct edit (delete), so a slow, now-stale
   // GET /history response can never clobber a more recent optimistic update.
   const historyRequestIdRef = useRef(0);
+  const activeTrackingCodeRef = useRef<string | null>(null);
 
   const joinAsCustomer = (trackingCode: string) => {
     const socket = getSocket();
@@ -166,6 +167,30 @@ export function CustomerPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    activeTrackingCodeRef.current = session?.trackingCode ?? null;
+  }, [session?.trackingCode]);
+
+  // Socket.IO room membership doesn't survive a reconnect — a new socket id isn't in
+  // any room until it re-joins. Without this, a network blip (or the backend spinning
+  // back up after Render's free-tier idle sleep) would silently stop delivering
+  // updates even once the connection itself is back. "connect" fires on the very
+  // first connect too, which just re-sends a harmless duplicate join.
+  useEffect(() => {
+    const socket = getSocket();
+    const onConnect = () => {
+      const trackingCode = activeTrackingCodeRef.current;
+      if (!trackingCode) return;
+      socket.emit("customer:join", { trackingCode }, (ack: JoinAck) => {
+        if (ack.ok && ack.session) setSession(ack.session);
+      });
+    };
+    socket.on("connect", onConnect);
+    return () => {
+      socket.off("connect", onConnect);
+    };
   }, []);
 
   useEffect(() => {

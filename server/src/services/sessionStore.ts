@@ -93,6 +93,22 @@ export async function updateDeliveryStatus(
   await db.order.update({ where: { id: orderRecordId }, data: { deliveryStatus } });
 }
 
+/**
+ * Which socket is "the" delivery partner for an order lives only in this process's
+ * memory (see liveState.ts) — it's meaningless across a restart. So on every boot,
+ * any order left CONNECTED/TRACKING from a previous process's lifetime is now
+ * definitely stale (nobody could possibly still be bound to it) and gets corrected
+ * to OFFLINE, rather than showing a customer a live status for a partner who isn't
+ * actually there. A real delivery:join after this will promote it again normally.
+ */
+export async function resetStaleDeliveryStatuses(): Promise<number> {
+  const result = await db.order.updateMany({
+    where: { deliveryStatus: { not: "OFFLINE" } },
+    data: { deliveryStatus: "OFFLINE" },
+  });
+  return result.count;
+}
+
 /** Permanently deletes an order and its location history (cascades via the DB relation). Returns false if it didn't exist. */
 export async function deleteOrder(trackingCode: string): Promise<boolean> {
   try {
