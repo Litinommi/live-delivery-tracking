@@ -19,7 +19,12 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function OrderCard({ session }: { session: TrackingSession }) {
+interface OrderCardProps {
+  session: TrackingSession;
+  onNewOrder: () => void;
+}
+
+export function OrderCard({ session, onNewOrder }: OrderCardProps) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -32,11 +37,19 @@ export function OrderCard({ session }: { session: TrackingSession }) {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-xs font-semibold tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-          ORDER
-        </p>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{session.orderId}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-wider text-slate-400 dark:text-slate-500 mb-1">
+            ORDER
+          </p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">{session.orderId}</h2>
+        </div>
+        <button
+          onClick={onNewOrder}
+          className="text-xs font-medium text-accent-600 dark:text-accent-400 hover:underline shrink-0 mt-0.5"
+        >
+          New order
+        </button>
       </div>
 
       <div>
