@@ -8,7 +8,10 @@ export function getSocket(): Socket {
   if (!socket) {
     socket = io(SERVER_URL, {
       autoConnect: false,
-      transports: ["websocket", "polling"],
+      // Start the handshake over polling, then upgrade to WebSocket — starting
+      // directly on WebSocket hangs indefinitely behind some host proxies
+      // (observed on Render), since there's no polling session to upgrade from.
+      transports: ["polling", "websocket"],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
