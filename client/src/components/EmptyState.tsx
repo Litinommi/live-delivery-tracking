@@ -1,4 +1,4 @@
-import { PackageSearch } from "lucide-react";
+import { PackageSearch, Trash2 } from "lucide-react";
 import { OrderSummary } from "../types";
 
 interface EmptyStateProps {
@@ -7,6 +7,7 @@ interface EmptyStateProps {
   errorMessage: string | null;
   history: OrderSummary[];
   onSelectHistory: (trackingCode: string) => void;
+  onDeleteHistory: (trackingCode: string) => void;
 }
 
 const STATUS_DOT: Record<OrderSummary["deliveryStatus"], string> = {
@@ -21,6 +22,7 @@ export function EmptyState({
   errorMessage,
   history,
   onSelectHistory,
+  onDeleteHistory,
 }: EmptyStateProps) {
   return (
     <div className="flex-1 flex items-center justify-center px-6 overflow-y-auto py-10">
@@ -54,25 +56,39 @@ export function EmptyState({
             </p>
             <div className="space-y-2">
               {history.slice(0, 6).map((order) => (
-                <button
+                <div
                   key={order.trackingCode}
-                  onClick={() => onSelectHistory(order.trackingCode)}
-                  className="w-full text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 flex items-center justify-between gap-2 hover:border-accent-300 dark:hover:border-accent-700 transition-colors"
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-1 hover:border-accent-300 dark:hover:border-accent-700 transition-colors"
                 >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full shrink-0 ${STATUS_DOT[order.deliveryStatus]}`}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
-                        {order.orderId}
-                      </span>
-                      <span className="block text-[11px] font-mono tracking-wider text-slate-400 dark:text-slate-500">
-                        {order.trackingCode}
+                  <button
+                    onClick={() => onSelectHistory(order.trackingCode)}
+                    className="flex-1 min-w-0 text-left px-4 py-3 flex items-center justify-between gap-2"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full shrink-0 ${STATUS_DOT[order.deliveryStatus]}`}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
+                          {order.orderId}
+                        </span>
+                        <span className="block text-[11px] font-mono tracking-wider text-slate-400 dark:text-slate-500">
+                          {order.trackingCode}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteHistory(order.trackingCode);
+                    }}
+                    aria-label={`Delete ${order.orderId}`}
+                    className="shrink-0 h-8 w-8 mr-2 flex items-center justify-center rounded-md text-slate-300 dark:text-slate-600 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               ))}
             </div>
           </div>

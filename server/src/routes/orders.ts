@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createSession, findOrderWithHistory, getOrderSummaries } from "../services/sessionStore";
+import { createSession, deleteOrder, findOrderWithHistory, getOrderSummaries } from "../services/sessionStore";
 
 export const ordersRouter = Router();
 
@@ -33,4 +33,14 @@ ordersRouter.get("/orders/:trackingCode", async (req, res) => {
     return;
   }
   res.json(found.session);
+});
+
+/** Permanently deletes an order and its location history. */
+ordersRouter.delete("/orders/:trackingCode", async (req, res) => {
+  const deleted = await deleteOrder(req.params.trackingCode);
+  if (!deleted) {
+    res.status(404).json({ error: "Invalid tracking code." });
+    return;
+  }
+  res.status(204).end();
 });

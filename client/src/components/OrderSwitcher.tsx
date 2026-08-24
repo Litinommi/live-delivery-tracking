@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { OrderSummary } from "../types";
 
 interface OrderSwitcherProps {
@@ -8,6 +8,7 @@ interface OrderSwitcherProps {
   loading: boolean;
   activeTrackingCode?: string;
   onSelect: (trackingCode: string) => void;
+  onDelete: (trackingCode: string) => void;
   onNewOrder: () => void;
   onOpen: () => void;
 }
@@ -33,6 +34,7 @@ export function OrderSwitcher({
   loading,
   activeTrackingCode,
   onSelect,
+  onDelete,
   onNewOrder,
   onOpen,
 }: OrderSwitcherProps) {
@@ -93,33 +95,49 @@ export function OrderSwitcher({
             {orders.map((order) => {
               const isActive = order.trackingCode === activeTrackingCode;
               return (
-                <button
+                <div
                   key={order.trackingCode}
-                  onClick={() => {
-                    setOpen(false);
-                    onSelect(order.trackingCode);
-                  }}
-                  className={`w-full text-left rounded-lg px-3 py-2 flex items-center justify-between gap-2 transition-colors ${
+                  className={`rounded-lg flex items-center gap-1 transition-colors ${
                     isActive
                       ? "bg-accent-50 dark:bg-accent-900/20"
                       : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
                   }`}
                 >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${STATUS_DOT[order.deliveryStatus]}`} />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
-                        {order.orderId}
-                      </span>
-                      <span className="block text-[11px] font-mono tracking-wider text-slate-400 dark:text-slate-500">
-                        {order.trackingCode}
+                  <button
+                    onClick={() => {
+                      setOpen(false);
+                      onSelect(order.trackingCode);
+                    }}
+                    className="flex-1 min-w-0 text-left px-3 py-2 flex items-center justify-between gap-2"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full shrink-0 ${STATUS_DOT[order.deliveryStatus]}`}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
+                          {order.orderId}
+                        </span>
+                        <span className="block text-[11px] font-mono tracking-wider text-slate-400 dark:text-slate-500">
+                          {order.trackingCode}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
-                    {formatDate(order.createdAt)}
-                  </span>
-                </button>
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
+                      {formatDate(order.createdAt)}
+                    </span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(order.trackingCode);
+                    }}
+                    aria-label={`Delete ${order.orderId}`}
+                    className="shrink-0 h-7 w-7 mr-1 flex items-center justify-center rounded-md text-slate-300 dark:text-slate-600 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               );
             })}
           </div>

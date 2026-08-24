@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Header } from "../components/Header";
 import { EmptyState } from "../components/EmptyState";
 import { OrderCard } from "../components/OrderCard";
@@ -14,6 +14,7 @@ import {
   getHistoryCodes,
   getLastViewedCode,
   migrateLegacyStorage,
+  removeFromHistory,
   setLastViewedCode,
 } from "../services/orderHistory";
 import { DeliveryStatus, LocationPoint, OrderSummary, TrackingSession } from "../types";
@@ -50,6 +51,9 @@ export function CustomerPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [historyOrders, setHistoryOrders] = useState<OrderSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Bumped on every fetch AND every direct edit (delete), so a slow, now-stale
+  // GET /history response can never clobber a more recent optimistic update.
+  const historyRequestIdRef = useRef(0);
 
   const joinAsCustomer = (trackingCode: string) => {
     const socket = getSocket();
@@ -65,12 +69,19 @@ export function CustomerPage() {
   };
 
   const refreshHistory = () => {
+    const requestId = ++historyRequestIdRef.current;
     setHistoryLoading(true);
     api
       .getOrderHistory(getHistoryCodes())
-      .then(setHistoryOrders)
-      .catch(() => setHistoryOrders([]))
-      .finally(() => setHistoryLoading(false));
+      .then((summaries) => {
+        if (historyRequestIdRef.current === requestId) setHistoryOrders(summaries);
+      })
+      .catch(() => {
+        if (historyRequestIdRef.current === requestId) setHistoryOrders([]);
+      })
+      .finally(() => {
+        if (historyRequestIdRef.current === requestId) setHistoryLoading(false);
+      });
   };
 
   const handleCreateOrder = async () => {
@@ -103,6 +114,31 @@ export function CustomerPage() {
       joinAsCustomer(trackingCode);
     } catch {
       clearLastViewedCode();
+    }
+  };
+
+  const handleDeleteOrder = async (trackingCode: string) => {
+    const target = historyOrders.find((o) => o.trackingCode === trackingCode);
+    const label = target ? `${target.orderId} (${trackingCode})` : trackingCode;
+    if (!window.confirm(`Delete ${label}? This can't be undone.`)) return;
+
+    // Optimistic: reflect the deletion immediately rather than waiting on the network
+    // round trip, and roll back if the server call actually fails. Bumping the request
+    // id first invalidates any in-flight refreshHistory() fetch, so its (now-stale)
+    // result can't land afterward and resurrect the row we just removed.
+    historyRequestIdRef.current += 1;
+    removeFromHistory(trackingCode);
+    setHistoryOrders((prev) => prev.filter((o) => o.trackingCode !== trackingCode));
+    if (session?.trackingCode === trackingCode) setSession(null);
+
+    try {
+      await api.deleteOrder(trackingCode);
+    } catch {
+      if (target) {
+        addToHistory(trackingCode);
+        setHistoryOrders((prev) => [target, ...prev]);
+      }
+      window.alert("Couldn't delete this order — please try again.");
     }
   };
 
@@ -172,6 +208,7 @@ export function CustomerPage() {
           errorMessage={createError}
           history={historyOrders}
           onSelectHistory={handleViewOrder}
+          onDeleteHistory={handleDeleteOrder}
         />
       ) : (
         <div className="flex-1 flex flex-col md:flex-row min-h-0">
@@ -182,6 +219,7 @@ export function CustomerPage() {
                 history={historyOrders}
                 historyLoading={historyLoading}
                 onSelectOrder={handleViewOrder}
+                onDeleteOrder={handleDeleteOrder}
                 onNewOrder={handleNewOrder}
                 onOpenSwitcher={refreshHistory}
               />

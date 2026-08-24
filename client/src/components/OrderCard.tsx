@@ -25,6 +25,7 @@ interface OrderCardProps {
   history: OrderSummary[];
   historyLoading: boolean;
   onSelectOrder: (trackingCode: string) => void;
+  onDeleteOrder: (trackingCode: string) => void;
   onNewOrder: () => void;
   onOpenSwitcher: () => void;
 }
@@ -34,6 +35,7 @@ export function OrderCard({
   history,
   historyLoading,
   onSelectOrder,
+  onDeleteOrder,
   onNewOrder,
   onOpenSwitcher,
 }: OrderCardProps) {
@@ -55,6 +57,7 @@ export function OrderCard({
         loading={historyLoading}
         activeTrackingCode={session.trackingCode}
         onSelect={onSelectOrder}
+        onDelete={onDeleteOrder}
         onNewOrder={onNewOrder}
         onOpen={onOpenSwitcher}
       />

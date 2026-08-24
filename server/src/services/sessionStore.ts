@@ -93,6 +93,16 @@ export async function updateDeliveryStatus(
   await db.order.update({ where: { id: orderRecordId }, data: { deliveryStatus } });
 }
 
+/** Permanently deletes an order and its location history (cascades via the DB relation). Returns false if it didn't exist. */
+export async function deleteOrder(trackingCode: string): Promise<boolean> {
+  try {
+    await db.order.delete({ where: { trackingCode: trackingCode.toUpperCase() } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Lightweight order summaries for a browser's order-history list — no location history payload. */
 export async function getOrderSummaries(trackingCodes: string[]): Promise<OrderSummary[]> {
   if (trackingCodes.length === 0) return [];

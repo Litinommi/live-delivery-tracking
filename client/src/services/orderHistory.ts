@@ -21,6 +21,12 @@ export function addToHistory(trackingCode: string): void {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(codes.slice(0, MAX_HISTORY)));
 }
 
+export function removeFromHistory(trackingCode: string): void {
+  const codes = getHistoryCodes().filter((c) => c !== trackingCode);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(codes));
+  if (getLastViewedCode() === trackingCode) clearLastViewedCode();
+}
+
 export function getLastViewedCode(): string | null {
   return localStorage.getItem(LAST_VIEWED_KEY);
 }

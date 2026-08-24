@@ -28,4 +28,11 @@ export const api = {
       handle<OrderSummary[]>(r)
     );
   },
+  deleteOrder(trackingCode: string): Promise<void> {
+    return fetch(`${SERVER_URL}/api/orders/${encodeURIComponent(trackingCode)}`, {
+      method: "DELETE",
+    }).then((r) => {
+      if (!r.ok && r.status !== 404) throw new Error("Failed to delete order.");
+    });
+  },
 };
