@@ -16,6 +16,7 @@ interface OrderSwitcherProps {
 const STATUS_DOT: Record<OrderSummary["deliveryStatus"], string> = {
   TRACKING: "bg-emerald-500",
   CONNECTED: "bg-accent-500",
+  RECONNECTING: "bg-amber-500",
   OFFLINE: "bg-slate-300 dark:bg-slate-600",
 };
 

@@ -17,7 +17,7 @@ import {
   removeFromHistory,
   setLastViewedCode,
 } from "../services/orderHistory";
-import { DeliveryStatus, LocationPoint, OrderSummary, TrackingSession } from "../types";
+import { ConnectionStatus, DeliveryStage, LocationPoint, OrderSummary, TrackingSession } from "../types";
 
 interface JoinAck {
   ok: boolean;
@@ -38,6 +38,8 @@ function deriveBadge(
       return { variant: "live", label: "Live Tracking" };
     case "CONNECTED":
       return { variant: "connected", label: "Delivery Partner Connected" };
+    case "RECONNECTING":
+      return { variant: "reconnecting", label: "Partner Reconnecting…" };
     default:
       return { variant: "offline", label: "Delivery Partner Offline" };
   }
@@ -202,15 +204,20 @@ export function CustomerPage() {
         prev ? { ...prev, currentLocation: point, locationHistory: [...prev.locationHistory, point] } : prev
       );
     };
-    const onStatus = ({ deliveryStatus }: { deliveryStatus: DeliveryStatus }) => {
+    const onStatus = ({ deliveryStatus }: { deliveryStatus: ConnectionStatus }) => {
       setSession((prev) => (prev ? { ...prev, deliveryStatus } : prev));
+    };
+    const onLifecycle = ({ stage }: { stage: DeliveryStage }) => {
+      setSession((prev) => (prev ? { ...prev, status: stage } : prev));
     };
 
     socket.on("location:update", onLocation);
     socket.on("delivery:status", onStatus);
+    socket.on("lifecycle:update", onLifecycle);
     return () => {
       socket.off("location:update", onLocation);
       socket.off("delivery:status", onStatus);
+      socket.off("lifecycle:update", onLifecycle);
     };
   }, [session?.trackingCode]);
 

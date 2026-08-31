@@ -1,6 +1,7 @@
 import { Order as OrderRow, LocationPoint as LocationPointRow } from "@prisma/client";
 import { db } from "../db";
-import { DeliveryStatus, LocationPoint, OrderStatus, OrderSummary, TrackingSession } from "../types";
+import { canTransition, INITIAL_STAGE } from "./deliveryLifecycle";
+import { ConnectionStatus, DeliveryStage, LocationPoint, OrderSummary, TrackingSession } from "../types";
 
 const TRACKING_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I ambiguity
 const MAX_HISTORY_POINTS = 500;
@@ -43,8 +44,8 @@ function toPublicSession(order: OrderRow, locations: LocationPointRow[]): Tracki
   return {
     orderId: formatOrderId(order.seq),
     trackingCode: order.trackingCode,
-    status: order.status as OrderStatus,
-    deliveryStatus: order.deliveryStatus as DeliveryStatus,
+    status: order.status as DeliveryStage,
+    deliveryStatus: order.deliveryStatus as ConnectionStatus,
     currentLocation: points[points.length - 1],
     locationHistory: points,
     createdAt: order.createdAt.getTime(),
@@ -53,7 +54,7 @@ function toPublicSession(order: OrderRow, locations: LocationPointRow[]): Tracki
 
 export async function createSession(): Promise<TrackingSession> {
   const trackingCode = await generateUniqueTrackingCode();
-  const order = await db.order.create({ data: { trackingCode } });
+  const order = await db.order.create({ data: { trackingCode, status: INITIAL_STAGE } });
   return toPublicSession(order, []);
 }
 
@@ -88,9 +89,33 @@ export async function appendLocationPoint(orderRecordId: string, point: Location
 
 export async function updateDeliveryStatus(
   orderRecordId: string,
-  deliveryStatus: DeliveryStatus
+  deliveryStatus: ConnectionStatus
 ): Promise<void> {
   await db.order.update({ where: { id: orderRecordId }, data: { deliveryStatus } });
+}
+
+/**
+ * Attempts to move an order's lifecycle stage forward. Rejects (without writing
+ * anything) if the transition isn't a valid single forward step from wherever the
+ * order currently is — see deliveryLifecycle.ts. Callers driving this from an
+ * automatic trigger (partner joining, first GPS point) should treat a rejection as
+ * a harmless no-op; callers driving it from an explicit user action (a mobile
+ * button) should surface the error.
+ */
+export async function advanceDeliveryStage(
+  orderRecordId: string,
+  targetStage: DeliveryStage
+): Promise<{ ok: true; stage: DeliveryStage } | { ok: false; error: string }> {
+  const order = await db.order.findUnique({ where: { id: orderRecordId } });
+  if (!order) return { ok: false, error: "Order not found." };
+
+  const currentStage = order.status as DeliveryStage;
+  if (!canTransition(currentStage, targetStage)) {
+    return { ok: false, error: `Cannot move from ${currentStage} to ${targetStage}.` };
+  }
+
+  await db.order.update({ where: { id: orderRecordId }, data: { status: targetStage } });
+  return { ok: true, stage: targetStage };
 }
 
 /**
@@ -132,8 +157,8 @@ export async function getOrderSummaries(trackingCodes: string[]): Promise<OrderS
   return orders.map((order) => ({
     orderId: formatOrderId(order.seq),
     trackingCode: order.trackingCode,
-    status: order.status as OrderStatus,
-    deliveryStatus: order.deliveryStatus as DeliveryStatus,
+    status: order.status as DeliveryStage,
+    deliveryStatus: order.deliveryStatus as ConnectionStatus,
     createdAt: order.createdAt.getTime(),
     currentLocation: order.locations[0] ? toLocationPoint(order.locations[0]) : undefined,
   }));

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "../components/Header";
 import { ConnectScreen } from "../components/mobile/ConnectScreen";
 import { TrackingScreen } from "../components/mobile/TrackingScreen";
@@ -7,7 +7,7 @@ import { useSocketConnection } from "../hooks/useSocketConnection";
 import { useTheme } from "../hooks/useTheme";
 import { getSocket } from "../services/socket";
 import { api } from "../services/api";
-import { TrackingSession } from "../types";
+import { DeliveryStage, TrackingSession } from "../types";
 
 interface JoinAck {
   ok: boolean;
@@ -42,6 +42,21 @@ export function MobilePage() {
       setConnectError(err instanceof Error ? err.message : "Invalid tracking code.");
     }
   };
+
+  // The lifecycle can advance from a trigger the mobile app didn't itself initiate
+  // (the server auto-promotes ORDER_PICKED_UP -> ON_THE_WAY off the first GPS point) —
+  // this keeps the on-screen checklist in sync with whatever the server decided.
+  useEffect(() => {
+    if (!session) return;
+    const socket = getSocket();
+    const onLifecycle = ({ stage }: { stage: DeliveryStage }) => {
+      setSession((prev) => (prev ? { ...prev, status: stage } : prev));
+    };
+    socket.on("lifecycle:update", onLifecycle);
+    return () => {
+      socket.off("lifecycle:update", onLifecycle);
+    };
+  }, [session?.trackingCode]);
 
   const badge: { variant: BadgeVariant; label: string } =
     connectionState === "disconnected"

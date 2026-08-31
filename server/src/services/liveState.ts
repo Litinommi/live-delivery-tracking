@@ -17,6 +17,16 @@ interface DeliveryBinding {
 const bindingsByTrackingCode = new Map<string, DeliveryBinding>();
 const lastAcceptedAtByTrackingCode = new Map<string, number>();
 
+/**
+ * A dropped delivery socket doesn't necessarily mean the partner is really
+ * gone — it might just be a network blip that socket.io-client is already
+ * retrying. Give it a short grace window (see RECONNECT_GRACE_MS in
+ * socket/index.ts) before actually declaring the order OFFLINE, so a quick
+ * reconnect can cancel the pending flip instead of visibly bouncing the
+ * customer's UI to Offline and back.
+ */
+const offlineTimeoutsByTrackingCode = new Map<string, NodeJS.Timeout>();
+
 export function bindDeliverySocket(
   trackingCode: string,
   binding: Omit<DeliveryBinding, "trackingStarted">
@@ -48,4 +58,22 @@ export function canAcceptLocation(trackingCode: string, now: number): boolean {
 
 export function markLocationAccepted(trackingCode: string, now: number): void {
   lastAcceptedAtByTrackingCode.set(trackingCode, now);
+}
+
+/** Cancels any previously scheduled offline-flip for this order before scheduling a new one. */
+export function scheduleOfflineTimeout(trackingCode: string, delayMs: number, run: () => void): void {
+  cancelOfflineTimeout(trackingCode);
+  const handle = setTimeout(() => {
+    offlineTimeoutsByTrackingCode.delete(trackingCode);
+    run();
+  }, delayMs);
+  offlineTimeoutsByTrackingCode.set(trackingCode, handle);
+}
+
+export function cancelOfflineTimeout(trackingCode: string): void {
+  const existing = offlineTimeoutsByTrackingCode.get(trackingCode);
+  if (existing) {
+    clearTimeout(existing);
+    offlineTimeoutsByTrackingCode.delete(trackingCode);
+  }
 }

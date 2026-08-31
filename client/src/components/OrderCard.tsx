@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { OrderSummary, TrackingSession } from "../types";
 import { formatRelativeTime } from "../services/geo";
 import { OrderSwitcher } from "./OrderSwitcher";
+import { DeliveryStageTimeline } from "./DeliveryStageTimeline";
 
 const DELIVERY_STATUS_COPY: Record<TrackingSession["deliveryStatus"], string> = {
   OFFLINE: "Waiting for delivery partner to connect",
   CONNECTED: "Delivery partner connected — waiting for GPS",
   TRACKING: "Your delivery partner is moving",
+  RECONNECTING: "Delivery partner's connection dropped — reconnecting…",
 };
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -48,6 +50,7 @@ export function OrderCard({
 
   const loc = session.currentLocation;
   const isTracking = session.deliveryStatus === "TRACKING";
+  const isReconnecting = session.deliveryStatus === "RECONNECTING";
 
   return (
     <div className="space-y-5">
@@ -63,17 +66,32 @@ export function OrderCard({
       />
 
       <div>
-        <div className="flex items-center gap-2 mb-1.5">
+        <p className="text-[11px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 mb-1.5">
+          CONNECTION
+        </p>
+        <div className="flex items-center gap-2">
           <span
-            className={`h-2 w-2 rounded-full ${isTracking ? "bg-emerald-500 animate-pulse" : "bg-slate-300 dark:bg-slate-600"}`}
+            className={`h-2 w-2 rounded-full ${
+              isTracking
+                ? "bg-emerald-500 animate-pulse"
+                : isReconnecting
+                  ? "bg-amber-500 animate-pulse"
+                  : "bg-slate-300 dark:bg-slate-600"
+            }`}
           />
-          <span className="text-xs font-bold tracking-wide text-slate-700 dark:text-slate-200">
-            {session.status === "ARRIVED" ? "ARRIVED" : "ON THE WAY"}
+          <span className="text-sm text-slate-600 dark:text-slate-300">
+            {DELIVERY_STATUS_COPY[session.deliveryStatus]}
           </span>
         </div>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {DELIVERY_STATUS_COPY[session.deliveryStatus]}
+      </div>
+
+      <hr className="border-slate-200 dark:border-slate-800" />
+
+      <div>
+        <p className="text-[11px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 mb-3">
+          DELIVERY STATUS
         </p>
+        <DeliveryStageTimeline currentStage={session.status} />
       </div>
 
       <hr className="border-slate-200 dark:border-slate-800" />

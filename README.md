@@ -54,10 +54,11 @@ live-delivery-tracking/
 │   │   └── types/               shared TS types
 │   └── package.json
 ├── server/                    Node + Express + Socket.IO + TypeScript
+│   ├── prisma/schema.prisma   Order + LocationPoint models (Postgres)
 │   ├── src/
-│   │   ├── routes/orders.ts   POST /api/orders, GET /api/orders/:trackingCode
+│   │   ├── routes/orders.ts   REST endpoints
 │   │   ├── socket/index.ts    all Socket.IO event handlers
-│   │   ├── services/          in-memory session store
+│   │   ├── services/          DB access, delivery lifecycle rules, live socket bindings
 │   │   ├── types/              shared TS types
 │   │   └── server.ts
 │   └── package.json
@@ -71,12 +72,22 @@ live-delivery-tracking/
 interface TrackingSession {
   orderId: string;              // "ORD-1001"
   trackingCode: string;         // "BQK9XF"
-  status: "ON_THE_WAY" | "ARRIVED";
-  deliveryStatus: "OFFLINE" | "CONNECTED" | "TRACKING";
+  status: DeliveryStage;        // where the order is in its lifecycle
+  deliveryStatus: ConnectionStatus; // whether the partner's socket is actually here
   currentLocation?: LocationPoint;
   locationHistory: LocationPoint[];
   createdAt: number;
 }
+
+type DeliveryStage =
+  | "ORDER_CREATED"
+  | "PARTNER_CONNECTED"
+  | "ORDER_PICKED_UP"
+  | "ON_THE_WAY"
+  | "NEAR_DESTINATION"
+  | "DELIVERED";
+
+type ConnectionStatus = "OFFLINE" | "CONNECTED" | "TRACKING" | "RECONNECTING";
 
 interface LocationPoint {
   latitude: number;
@@ -86,9 +97,24 @@ interface LocationPoint {
 }
 ```
 
-Sessions live in a `Map<trackingCode, SessionRecord>` in server memory. There is
-no database — restarting the server clears all orders, which is fine for this
-prototype.
+`status` and `deliveryStatus` are deliberately independent. `status` is the
+delivery **lifecycle** — where the order actually is, start to finish — and
+only ever moves forward one stage at a time (enforced centrally in
+[`server/src/services/deliveryLifecycle.ts`](server/src/services/deliveryLifecycle.ts)).
+`deliveryStatus` is purely the partner's **live connection state** — whether
+their socket is actually here right now — and can flap between `CONNECTED`,
+`TRACKING`, `RECONNECTING`, and `OFFLINE` without touching the lifecycle at
+all. A partner going offline mid-`ON_THE_WAY` doesn't un-become `ON_THE_WAY`.
+
+Orders and their location history are stored in Postgres via Prisma
+([`server/prisma/schema.prisma`](server/prisma/schema.prisma)) — they survive
+backend restarts and redeploys. The only thing that stays in server memory is
+which live socket is currently bound as an order's delivery partner
+([`server/src/services/liveState.ts`](server/src/services/liveState.ts)),
+since a socket id is meaningless once the process that held the connection is
+gone; on boot, any order left non-`OFFLINE` from a previous process's
+lifetime is reset, since a fresh process can't have a real live partner
+bound yet.
 
 ## Real-Time Protocol (Socket.IO)
 
@@ -97,12 +123,13 @@ Each order gets its own room: `order:<orderId>`.
 | Event | Direction | Payload | Purpose |
 |---|---|---|---|
 | `customer:join` | client → server (ack) | `{ trackingCode }` | Laptop joins the order's room, receives full session state |
-| `delivery:join` | client → server (ack) | `{ trackingCode }` | Phone joins the order's room as the delivery partner |
-| `delivery:location` | client → server | `{ trackingCode, latitude, longitude, accuracy, timestamp }` | Phone pushes a GPS point |
-| `delivery:stop` | client → server | `{ trackingCode }` | Phone stops tracking |
-| `session:update` (via join ack) | server → client | `TrackingSession` | Full state snapshot |
+| `delivery:join` | client → server (ack) | `{ trackingCode }` | Phone joins the order's room as the delivery partner; also advances `ORDER_CREATED → PARTNER_CONNECTED` on a first connect |
+| `delivery:location` | client → server | `{ trackingCode, latitude, longitude, accuracy, timestamp }` | Phone pushes a GPS point; also advances `ORDER_PICKED_UP → ON_THE_WAY` once movement is confirmed |
+| `delivery:advanceStage` | client → server (ack) | `{ trackingCode, targetStage }` | Explicit lifecycle action ("Mark Picked Up" / "Mark Near Destination" / "Mark Delivered") — rejected if not a valid single forward step from the current stage |
+| `delivery:stop` | client → server | `{ trackingCode }` | Phone stops tracking (connection state only — doesn't touch the lifecycle) |
 | `location:update` | server → client | `LocationPoint` | One new GPS point, broadcast to the room |
-| `delivery:status` | server → client | `{ deliveryStatus }` | Delivery partner offline / connected / tracking |
+| `delivery:status` | server → client | `{ deliveryStatus }` | Partner's connection state: offline / connected / tracking / reconnecting |
+| `lifecycle:update` | server → client | `{ stage }` | The order's lifecycle stage changed, broadcast to the room |
 
 **Security (kept intentionally simple):** the server only accepts
 `delivery:location` events from the exact socket that previously joined that
