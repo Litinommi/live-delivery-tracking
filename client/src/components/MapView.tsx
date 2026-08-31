@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MapContainer, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { TrackingSession } from "../types";
 import { DeliveryMarker } from "./DeliveryMarker";
+import { DestinationMarker } from "./DestinationMarker";
 import { MapControls } from "./MapControls";
 
 const DEFAULT_CENTER: [number, number] = [20.5937, 78.9629];
@@ -75,6 +76,7 @@ export function MapView({ session }: { session: TrackingSession }) {
         {currentPosition && (
           <DeliveryMarker position={{ lat: currentPosition[0], lng: currentPosition[1] }} />
         )}
+        {session.destination && <DestinationMarker position={session.destination} />}
         <FollowController
           currentPosition={currentPosition}
           isFollowing={isFollowing}

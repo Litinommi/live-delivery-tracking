@@ -1,7 +1,7 @@
-import { LocationPoint } from "../types";
+import { GeoPoint } from "../types";
 
 /** Distance between two GPS points in meters (Haversine formula). */
-export function distanceMeters(a: LocationPoint, b: LocationPoint): number {
+export function distanceMeters(a: GeoPoint, b: GeoPoint): number {
   const R = 6371000;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.latitude - a.latitude);

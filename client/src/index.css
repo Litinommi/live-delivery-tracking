@@ -71,3 +71,24 @@ html.dark .leaflet-container {
 html.dark .delivery-marker__dot {
   border-color: #0f1115;
 }
+
+/* Destination marker — same layout, a neutral color so it reads as "endpoint" rather than "live". */
+.destination-marker__dot {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: #0f172a;
+  border: 3px solid white;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+html.dark .destination-marker__dot {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #0f1115;
+}

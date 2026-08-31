@@ -8,13 +8,15 @@ datasource db {
 }
 
 model Order {
-  id             String          @id @default(cuid())
-  seq            Int             @default(autoincrement())
-  trackingCode   String          @unique
-  status         String          @default("ORDER_CREATED")
-  deliveryStatus String          @default("OFFLINE")
-  createdAt      DateTime        @default(now())
-  locations      LocationPoint[]
+  id                   String          @id @default(cuid())
+  seq                  Int             @default(autoincrement())
+  trackingCode         String          @unique
+  status               String          @default("ORDER_CREATED")
+  deliveryStatus       String          @default("OFFLINE")
+  destinationLatitude  Float?
+  destinationLongitude Float?
+  createdAt            DateTime        @default(now())
+  locations            LocationPoint[]
 }
 
 model LocationPoint {

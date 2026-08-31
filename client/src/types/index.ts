@@ -23,6 +23,11 @@ export interface LocationPoint {
   timestamp: number;
 }
 
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
 export interface TrackingSession {
   orderId: string;
   trackingCode: string;
@@ -30,6 +35,8 @@ export interface TrackingSession {
   deliveryStatus: ConnectionStatus;
   currentLocation?: LocationPoint;
   locationHistory: LocationPoint[];
+  /** Auto-generated server-side once the partner's GPS starts flowing. */
+  destination?: GeoPoint;
   createdAt: number;
 }
 
@@ -54,4 +61,8 @@ export interface AdvanceStageAck {
   ok: boolean;
   stage?: DeliveryStage;
   error?: string;
+}
+
+export interface DestinationUpdatePayload {
+  destination: GeoPoint;
 }

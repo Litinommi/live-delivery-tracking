@@ -12,6 +12,7 @@ interface DeliveryBinding {
   orderRecordId: string; // internal DB id, avoids a query per GPS point
   displayOrderId: string; // "ORD-1001", used for the Socket.IO room name
   trackingStarted: boolean;
+  destinationEnsured: boolean; // avoids a DB read per point once the destination is known to be set
 }
 
 const bindingsByTrackingCode = new Map<string, DeliveryBinding>();
@@ -29,9 +30,9 @@ const offlineTimeoutsByTrackingCode = new Map<string, NodeJS.Timeout>();
 
 export function bindDeliverySocket(
   trackingCode: string,
-  binding: Omit<DeliveryBinding, "trackingStarted">
+  binding: Omit<DeliveryBinding, "trackingStarted" | "destinationEnsured">
 ): void {
-  bindingsByTrackingCode.set(trackingCode, { ...binding, trackingStarted: false });
+  bindingsByTrackingCode.set(trackingCode, { ...binding, trackingStarted: false, destinationEnsured: false });
 }
 
 export function unbindDeliverySocket(trackingCode: string): void {

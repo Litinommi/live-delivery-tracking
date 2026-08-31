@@ -17,7 +17,14 @@ import {
   removeFromHistory,
   setLastViewedCode,
 } from "../services/orderHistory";
-import { ConnectionStatus, DeliveryStage, LocationPoint, OrderSummary, TrackingSession } from "../types";
+import {
+  ConnectionStatus,
+  DeliveryStage,
+  DestinationUpdatePayload,
+  LocationPoint,
+  OrderSummary,
+  TrackingSession,
+} from "../types";
 
 interface JoinAck {
   ok: boolean;
@@ -210,14 +217,19 @@ export function CustomerPage() {
     const onLifecycle = ({ stage }: { stage: DeliveryStage }) => {
       setSession((prev) => (prev ? { ...prev, status: stage } : prev));
     };
+    const onDestination = ({ destination }: DestinationUpdatePayload) => {
+      setSession((prev) => (prev ? { ...prev, destination } : prev));
+    };
 
     socket.on("location:update", onLocation);
     socket.on("delivery:status", onStatus);
     socket.on("lifecycle:update", onLifecycle);
+    socket.on("destination:update", onDestination);
     return () => {
       socket.off("location:update", onLocation);
       socket.off("delivery:status", onStatus);
       socket.off("lifecycle:update", onLifecycle);
+      socket.off("destination:update", onDestination);
     };
   }, [session?.trackingCode]);
 

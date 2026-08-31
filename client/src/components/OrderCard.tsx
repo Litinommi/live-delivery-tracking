@@ -3,6 +3,7 @@ import { OrderSummary, TrackingSession } from "../types";
 import { formatRelativeTime } from "../services/geo";
 import { OrderSwitcher } from "./OrderSwitcher";
 import { DeliveryStageTimeline } from "./DeliveryStageTimeline";
+import { TrackingMetricsPanel } from "./TrackingMetricsPanel";
 
 const DELIVERY_STATUS_COPY: Record<TrackingSession["deliveryStatus"], string> = {
   OFFLINE: "Waiting for delivery partner to connect",
@@ -11,7 +12,7 @@ const DELIVERY_STATUS_COPY: Record<TrackingSession["deliveryStatus"], string> = 
   RECONNECTING: "Delivery partner's connection dropped — reconnecting…",
 };
 
-function Field({ label, value }: { label: string; value: string }) {
+export function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-[11px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 mb-1">
@@ -93,6 +94,10 @@ export function OrderCard({
         </p>
         <DeliveryStageTimeline currentStage={session.status} />
       </div>
+
+      <hr className="border-slate-200 dark:border-slate-800" />
+
+      <TrackingMetricsPanel session={session} now={now} />
 
       <hr className="border-slate-200 dark:border-slate-800" />
 

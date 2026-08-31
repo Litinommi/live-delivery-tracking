@@ -76,6 +76,7 @@ interface TrackingSession {
   deliveryStatus: ConnectionStatus; // whether the partner's socket is actually here
   currentLocation?: LocationPoint;
   locationHistory: LocationPoint[];
+  destination?: GeoPoint;       // auto-generated once GPS starts flowing — see below
   createdAt: number;
 }
 
@@ -116,6 +117,41 @@ gone; on boot, any order left non-`OFFLINE` from a previous process's
 lifetime is reset, since a fresh process can't have a real live partner
 bound yet.
 
+### Destination (and why it's made up)
+
+There's no address entry anywhere in this app — that's deliberate, "fake
+order" means there's nothing to type. But distance-to-destination and ETA are
+meaningless without something to measure against, so a destination is
+generated automatically ([`server/src/services/destination.ts`](server/src/services/destination.ts)):
+the first time GPS arrives for an order, a random point 0.8–2.5km away (real
+bearing-and-distance projection, not a flat approximation) is picked and
+stored permanently on that order. It's shown on the customer's map as a flag
+marker and is what "distance away" / ETA are computed against.
+
+## Real-Time Tracking Metrics
+
+`OrderCard`'s tracking panel — distance to destination, distance travelled,
+current/average speed, ETA — is computed entirely client-side from
+`locationHistory` (already synced) and `destination`, in a handful of pure,
+reusable modules under `client/src/services/`: [`distance.ts`](client/src/services/distance.ts),
+[`speed.ts`](client/src/services/speed.ts), [`eta.ts`](client/src/services/eta.ts),
+and [`trackingFormat.ts`](client/src/services/trackingFormat.ts). None of this
+needed new backend logic beyond the destination itself — the raw GPS stream
+was already there.
+
+The interesting part is deciding whether to trust a given GPS segment at all
+(`distance.ts`'s `classifySegment`): a segment can be **noise** (too small to
+be real movement — the threshold scales with each point's reported accuracy,
+since a poor fix needs more clearance than a good one before a few meters of
+"movement" is trusted), **implausible** (implies a physically impossible
+speed — almost certainly a bad fix, discarded outright rather than blended
+in), or **trusted**. Distance travelled sums only trusted segments; current
+speed is an EMA over the same classification (noise → sample of 0, so a
+stationary partner reads ~0 km/h rather than freezing; implausible → skipped
+entirely, so one bad fix can't spike the display). ETA is remaining distance
+÷ that smoothed speed, with its own guards for "already arrived" and
+"speed too low to extrapolate from" rather than showing a wild number.
+
 ## Real-Time Protocol (Socket.IO)
 
 Each order gets its own room: `order:<orderId>`.
@@ -130,6 +166,7 @@ Each order gets its own room: `order:<orderId>`.
 | `location:update` | server → client | `LocationPoint` | One new GPS point, broadcast to the room |
 | `delivery:status` | server → client | `{ deliveryStatus }` | Partner's connection state: offline / connected / tracking / reconnecting |
 | `lifecycle:update` | server → client | `{ stage }` | The order's lifecycle stage changed, broadcast to the room |
+| `destination:update` | server → client | `{ destination }` | The auto-generated destination, broadcast once when it's first set |
 
 **Security (kept intentionally simple):** the server only accepts
 `delivery:location` events from the exact socket that previously joined that

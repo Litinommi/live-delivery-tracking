@@ -16,6 +16,7 @@ import {
   roomForOrder,
   updateDeliveryStatus,
 } from "../services/sessionStore";
+import { ensureDestination } from "../services/destination";
 import {
   AdvanceStageAck,
   AdvanceStagePayload,
@@ -135,6 +136,14 @@ export function registerSocketHandlers(io: Server): void {
 
         await appendLocationPoint(binding.orderRecordId, point);
         io.to(roomForOrder(binding.displayOrderId)).emit("location:update", point);
+
+        if (!binding.destinationEnsured) {
+          binding.destinationEnsured = true;
+          const destination = await ensureDestination(binding.orderRecordId, point);
+          if (destination) {
+            io.to(roomForOrder(binding.displayOrderId)).emit("destination:update", { destination });
+          }
+        }
 
         if (!binding.trackingStarted) {
           binding.trackingStarted = true;

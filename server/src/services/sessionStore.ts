@@ -48,6 +48,10 @@ function toPublicSession(order: OrderRow, locations: LocationPointRow[]): Tracki
     deliveryStatus: order.deliveryStatus as ConnectionStatus,
     currentLocation: points[points.length - 1],
     locationHistory: points,
+    destination:
+      order.destinationLatitude != null && order.destinationLongitude != null
+        ? { latitude: order.destinationLatitude, longitude: order.destinationLongitude }
+        : undefined,
     createdAt: order.createdAt.getTime(),
   };
 }
